@@ -1,0 +1,1295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>周易股票决策系统 v4.1 - 实时数据 + 新闻API</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Noto Sans SC', system-ui, sans-serif;
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            color: #e2e8f0;
+            margin: 0;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: auto; }
+        .header { text-align: center; margin-bottom: 28px; }
+        .header h1 { margin: 0; color: #fbbf24; font-size: 2.2rem; }
+        .header p { color: #94a3b8; margin: 8px 0 0; }
+        .card {
+            background: #1e293b;
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid #334155;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3);
+        }
+        .section-title {
+            color: #fbbf24;
+            font-size: 1.3rem;
+            margin: 0 0 16px;
+            border-bottom: 2px solid #475569;
+            padding-bottom: 8px;
+        }
+        .input-group {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 18px;
+            margin-bottom: 20px;
+            align-items: start;
+        }
+        @media (max-width: 900px) {
+            .input-group { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        .input-group > div { min-width: 0; }
+        .input-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: #94a3b8;
+            font-weight: 500;
+            font-size: 0.95rem;
+        }
+        input, select, textarea {
+            width: 100%;
+            box-sizing: border-box;
+            background: #334155;
+            border: 1px solid #475569;
+            color: #e2e8f0;
+            border-radius: 12px;
+            padding: 14px 18px;
+            font-size: 1rem;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: #fbbf24;
+            box-shadow: 0 0 0 3px rgb(251 191 36 / 0.12);
+        }
+        button {
+            border: none;
+            border-radius: 9999px;
+            cursor: pointer;
+            padding: 16px 30px;
+            font-size: 1rem;
+            font-weight: 700;
+            transition: transform 0.2s ease;
+            background: linear-gradient(90deg, #fbbf24, #f59e0b);
+            color: #0f172a;
+        }
+        button:hover { transform: translateY(-2px); }
+        button:disabled { opacity: 0.75; cursor: not-allowed; transform: none; }
+        button.secondary { background: #475569; color: #e2e8f0; }
+        .result-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+        @media (max-width: 900px) {
+            .result-grid { grid-template-columns: 1fr; }
+        }
+        .hex-visual {
+            background: #0f172a;
+            border: 2px solid #475569;
+            border-radius: 14px;
+            padding: 18px;
+            text-align: center;
+        }
+        .hex-line {
+            height: 12px;
+            margin: 8px 0;
+            background: #fbbf24;
+            border-radius: 4px;
+            position: relative;
+        }
+        .hex-line.yin::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 40%;
+            width: 20%;
+            height: 100%;
+            background: #0f172a;
+        }
+        .hex-line.moving {
+            box-shadow: 0 0 0 2px rgb(250 204 21 / 0.5);
+        }
+        .line-tag {
+            position: absolute;
+            right: -62px;
+            top: -2px;
+            font-size: 0.76rem;
+            color: #fbbf24;
+        }
+        .advice-box {
+            background: #0f172a;
+            border-left: 5px solid #fbbf24;
+            border-radius: 12px;
+            padding: 16px;
+            line-height: 1.7;
+        }
+        .metric-wrap {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 12px;
+        }
+        @media (max-width: 900px) {
+            .metric-wrap { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        .metric {
+            background: #334155;
+            border-radius: 12px;
+            padding: 14px;
+            text-align: center;
+        }
+        .metric-value { color: #fbbf24; font-size: 1.4rem; font-weight: 700; }
+        .chart-container {
+            background: #0f172a;
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 14px;
+        }
+        .bullish { color: #4ade80; }
+        .bearish { color: #f87171; }
+        .neutral { color: #facc15; }
+        .news-item {
+            background: #0f172a;
+            border-left: 4px solid #fbbf24;
+            border-radius: 10px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        .news-item a { color: #fbbf24; text-decoration: none; font-weight: 600; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #0f172a;
+            border-radius: 10px;
+            overflow: hidden;
+            font-size: 0.9rem;
+        }
+        th, td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #334155;
+            text-align: left;
+        }
+        th { color: #94a3b8; background: #1e293b; }
+        .history-item {
+            background: #334155;
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin-bottom: 8px;
+            cursor: pointer;
+        }
+        .history-item:hover { background: #475569; }
+        .gold-card {
+            border: 2px solid #fbbf24;
+            box-shadow: 0 0 0 1px rgb(251 191 36 / 0.3), 0 12px 25px -10px rgb(251 191 36 / 0.25);
+        }
+        .data-source, .disclaimer {
+            color: #64748b;
+            font-size: 0.78rem;
+        }
+        .disclaimer { margin-top: 28px; text-align: center; }
+        .real-badge {
+            background: #14532d;
+            color: #86efac;
+            border-radius: 9999px;
+            padding: 2px 8px;
+            font-size: 0.72rem;
+            margin-left: 6px;
+        }
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 3px solid #475569;
+            border-top-color: #fbbf24;
+            animation: spin 1s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>🌀 周易股票决策系统 v4.1</h1>
+        <p>易经智慧 + 实时股价 + 真实新闻 + 技术分析 + 智能风控</p>
+    </div>
+
+    <div class="card">
+        <h2 class="section-title">📥 查询输入</h2>
+        <div class="input-group">
+            <div>
+                <label for="stockCode">股票代码</label>
+                <input type="text" id="stockCode" value="600519" placeholder="600519 / AAPL / TSLA">
+            </div>
+            <div>
+                <label for="capital">账户总资金 (元)</label>
+                <input type="number" id="capital" value="500000" step="10000">
+            </div>
+            <div>
+                <label for="riskPercent">单笔风险比例 (%)</label>
+                <input type="number" id="riskPercent" value="1.5" step="0.1" min="0.1" max="5">
+            </div>
+            <div>
+                <label for="newsApiKey">新闻API Key (可选)</label>
+                <input type="text" id="newsApiKey" placeholder="GNews 免费 Key">
+                <div class="data-source" style="margin-top:4px;">免费注册 gnews.io 获取（每天100次）</div>
+            </div>
+            <div>
+                <label for="questionType">问题类型</label>
+                <select id="questionType">
+                    <option value="买入">买入</option>
+                    <option value="卖出">卖出</option>
+                    <option value="持仓">持仓</option>
+                    <option value="短线">短线操作</option>
+                    <option value="长线">长线持有</option>
+                </select>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <label for="question">问题描述（请在心里默念）</label>
+                <textarea id="question" rows="2">此时此刻，该股票的走势能量如何？我该买入、卖出还是观望？</textarea>
+            </div>
+        </div>
+        <div style="text-align:center; display:flex; gap:12px; justify-content:center; flex-wrap:wrap; align-items:center;">
+            <button id="analyzeRealtimeBtn" onclick="performAnalysis(true)">🔮 问易经 + 实时数据 + 新闻分析</button>
+            <button id="analyzeMockBtn" onclick="performAnalysis(false)" class="secondary">📊 仅用模拟数据快速分析</button>
+            <label style="display:flex; align-items:center; gap:6px; margin-left:12px; cursor:pointer; color:#94a3b8; font-size:0.95rem;">
+                <input type="checkbox" id="advancedMode" style="accent-color:#fbbf24;">
+                高级模式（世应 + 用神）
+            </label>
+        </div>
+        <div class="data-source" style="margin-top:8px;">实时股价：Yahoo Finance | 新闻：GNews API（支持中文）</div>
+    </div>
+
+    <div id="results" style="display:none;"></div>
+
+    <div class="card">
+        <h2 class="section-title">📜 历史记录</h2>
+        <div id="historyList" style="max-height:220px; overflow:auto;"></div>
+        <div style="text-align:right; margin-top:10px;">
+            <button onclick="clearHistory()" class="secondary" style="padding:6px 16px; font-size:0.85rem;">清空历史</button>
+        </div>
+    </div>
+
+    <div class="disclaimer">
+        本系统仅供学习参考。实时数据来自公开接口，不构成投资建议。股市有风险，入市需谨慎。
+    </div>
+</div>
+
+<script>
+const HEXAGRAM_META = [
+    ['乾为天', '元亨利贞，刚健中正。', '强势格局，宜顺势而为，切忌追涨失控。', 2],
+    ['坤为地', '元亨，利牝马之贞。', '重在承接与防守，宜分批布局，耐心等待确认。', 1],
+    ['水雷屯', '元亨利贞，勿用有攸往。', '初期波动较大，谨慎试仓，先看风控再看收益。', -1],
+    ['山水蒙', '亨，匪我求童蒙。', '信息不明时不宜重仓，先学习与观察。', -1],
+    ['水天需', '有孚，光亨，贞吉。', '等待关键信号，耐心优于冲动。', 0],
+    ['天水讼', '有孚窒惕，中吉终凶。', '多空分歧强，短期冲突明显，控制仓位。', -2],
+    ['地水师', '贞丈人吉，无咎。', '可按纪律分步执行，避免情绪化交易。', 0],
+    ['水地比', '吉，原筮元永贞。', '关注资金共识，宜与主趋势同向。', 1],
+    ['风天小畜', '亨，密云不雨。', '上行受限，适合低吸高抛，不宜激进追高。', 0],
+    ['天泽履', '履虎尾，不咥人。', '高位需谨慎，严格执行止损。', -1],
+    ['地天泰', '小往大来，吉亨。', '多头修复期，可适度提高仓位。', 2],
+    ['天地否', '否之匪人，不利君子贞。', '趋势受阻，防守优先，等待扭转。', -2],
+    ['天火同人', '同人于野，亨。', '市场合力增强，热点共振可跟踪。', 1],
+    ['火天大有', '元亨。', '强势上涨阶段，宜设移动止盈。', 2],
+    ['地山谦', '亨，君子有终。', '低调蓄势，稳步建仓更优。', 1],
+    ['雷地豫', '利建侯行师。', '情绪升温但易过热，注意节奏。', 1],
+    ['泽雷随', '元亨利贞，无咎。', '跟随趋势可行，忌逆势博弈。', 1],
+    ['山风蛊', '元亨，利涉大川。', '旧结构修复中，反转需确认。', 0],
+    ['地泽临', '元亨利贞，至于八月有凶。', '中期向好，后段注意回撤风险。', 1],
+    ['风地观', '盥而不荐，有孚颙若。', '多观察少动作，等待关键位突破。', 0],
+    ['火雷噬嗑', '亨，利用狱。', '波动急促，适合纪律性短线。', 0],
+    ['山火贲', '亨，小利有攸往。', '题材包装较多，重视基本面验证。', -1],
+    ['山地剥', '不利有攸往。', '下行压力大，先防守，慎抄底。', -2],
+    ['地雷复', '亨，出入无疾。', '反弹信号出现，可小仓试错。', 1],
+    ['天雷无妄', '元亨利贞，其匪正有眚。', '避免主观臆断，按系统信号执行。', 0],
+    ['山天大畜', '利贞，不家食吉。', '蓄势后或有突破，逢回调布局。', 1],
+    ['山雷颐', '贞吉，观颐自求口实。', '关注量价健康度，防止虚涨。', 0],
+    ['泽风大过', '栋桡，利有攸往。', '波动放大，盈亏同源，仓位宜轻。', -1],
+    ['坎为水', '习坎，有孚维心亨。', '风险较高，需严格止损与分散。', -2],
+    ['离为火', '利贞，亨。畜牝牛吉。', '趋势热度上行，但警惕情绪化追高。', 1],
+    ['泽山咸', '亨，利贞，取女吉。', '共振增强，短线弹性较好。', 1],
+    ['雷风恒', '亨，无咎，利贞。', '趋势延续性较强，适合趋势跟随。', 2],
+    ['天山遁', '亨，小利贞。', '宜减仓避险，等待更优时机。', -1],
+    ['雷天大壮', '利贞。', '动能充沛，但高位波动加大。', 1],
+    ['火地晋', '康侯用锡马蕃庶。', '结构偏强，适合顺势加减仓。', 2],
+    ['地火明夷', '利艰贞。', '弱势遮蔽，重在防御，减少冲动交易。', -2],
+    ['风火家人', '利女贞。', '重视组合配置与仓位秩序。', 0],
+    ['火泽睽', '小事吉。', '分歧行情，适合快进快出。', -1],
+    ['水山蹇', '利西南，不利东北。', '上行受阻，谨慎观望为宜。', -1],
+    ['雷水解', '利西南，无所往其来复吉。', '压力释放后有修复机会。', 1],
+    ['山泽损', '有孚，元吉，无咎。', '先降风险再谋收益，控回撤为先。', 0],
+    ['风雷益', '利有攸往，利涉大川。', '增益格局，可分批加仓但保留机动性。', 2],
+    ['泽天夬', '扬于王庭，孚号有厉。', '临界突破期，需确认量能再决策。', 0],
+    ['天风姤', '女壮，勿用取女。', '突发反向波动概率提升，追单风险高。', -1],
+    ['泽地萃', '亨，王假有庙。', '资金集中，核心方向更具确定性。', 1],
+    ['地风升', '元亨，用见大人。', '稳步上行，可滚动加仓。', 2],
+    ['泽水困', '亨，贞，大人吉。', '震荡困局，保持耐心与现金流。', -1],
+    ['水风井', '改邑不改井。', '价值中枢稳定，适合长期跟踪。', 0],
+    ['泽火革', '己日乃孚，元亨利贞。', '结构切换期，注意风格轮动。', 1],
+    ['火风鼎', '元吉，亨。', '趋势升级，关注龙头持续性。', 2],
+    ['震为雷', '亨，震来虩虩。', '波动急剧放大，纪律比判断更重要。', 0],
+    ['艮为山', '艮其背，不获其身。', '缩量整理，耐心等待方向选择。', -1],
+    ['风山渐', '女归吉，利贞。', '慢牛节奏，适合低频稳健策略。', 1],
+    ['雷泽归妹', '征凶，无攸利。', '短线诱多风险高，谨慎参与。', -2],
+    ['雷火丰', '亨，王假之。', '高景气阶段，设好止盈线。', 1],
+    ['火山旅', '小亨，旅贞吉。', '流动性偏弱，轻仓试探更稳。', -1],
+    ['巽为风', '小亨，利有攸往。', '温和上行，适合波段操作。', 1],
+    ['兑为泽', '亨，利贞。', '情绪友好，关注成交量持续性。', 1],
+    ['风水涣', '亨，王假有庙。', '资金分散，宜精选强势品种。', -1],
+    ['水泽节', '亨，苦节不可贞。', '控制节奏与仓位，防止过度交易。', 0],
+    ['风泽中孚', '豚鱼吉，利涉大川。', '信号可信度提升，可策略性参与。', 1],
+    ['雷山小过', '亨，利贞，可小事不可大事。', '适合小仓短打，不宜重仓押注。', -1],
+    ['水火既济', '亨小，利贞，初吉终乱。', '短期完成度高，后续防回落。', 0],
+    ['火水未济', '亨，小狐汔济。', '尚未完成，等待下一次确认信号。', -1]
+];
+
+const HEXAGRAMS = HEXAGRAM_META.reduce((acc, item, idx) => {
+    const number = idx + 1;
+    acc[number] = {
+        number,
+        name: item[0],
+        guaCi: item[1],
+        stockAdvice: item[2],
+        energy: item[3]
+    };
+    return acc;
+}, {});
+
+const MOVING_LINE_INTERPRETATIONS = {
+    1: '初爻动：底部信息最敏感，常对应先知先觉资金试探，宜小仓验证。',
+    2: '二爻动：中段结构开始调整，若量价配合可逐步增加观察仓。',
+    3: '三爻动：多空博弈加剧，假突破风险上升，纪律止损尤为关键。',
+    4: '四爻动：趋势进入转折区，需结合MACD和量能判断是否延续。',
+    5: '五爻动：主导力量显现，若共振强可考虑核心仓位布局。',
+    6: '上爻动：阶段性极值信号，常提示高位回撤或低位反抽尾声。'
+};
+
+const TRIGRAMS = {
+    '111': { name: '乾', element: '金' },
+    '110': { name: '兑', element: '金' },
+    '101': { name: '离', element: '火' },
+    '100': { name: '震', element: '木' },
+    '011': { name: '巽', element: '木' },
+    '010': { name: '坎', element: '水' },
+    '001': { name: '艮', element: '土' },
+    '000': { name: '坤', element: '土' }
+};
+const ELEMENT_GENERATES = { 木: '火', 火: '土', 土: '金', 金: '水', 水: '木' };
+const ELEMENT_CONTROLS = { 木: '土', 土: '水', 水: '火', 火: '金', 金: '木' };
+const LINE_LABELS = ['初爻', '二爻', '三爻', '四爻', '五爻', '上爻'];
+
+const STORAGE_KEY = 'iching_stock_history_v41';
+const HISTORY_LIMIT = 20;
+const FALLBACK_HISTORY = [];
+const chartRefs = { price: null, volume: null, macd: null };
+
+function hashStringToInt(input) {
+    let hash = 2166136261;
+    for (let i = 0; i < input.length; i += 1) {
+        hash ^= input.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+    }
+    return hash >>> 0;
+}
+
+function createSeededRandom(seed) {
+    let t = seed >>> 0;
+    return function random() {
+        t += 0x6D2B79F5;
+        let r = Math.imul(t ^ (t >>> 15), t | 1);
+        r ^= r + Math.imul(r ^ (r >>> 7), r | 61);
+        return ((r ^ (r >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+function normalizeStockCode(raw) {
+    const code = (raw || '').trim().toUpperCase();
+    if (/^\d{6}$/.test(code)) {
+        if (code.startsWith('6') || code.startsWith('9')) return `${code}.SS`;
+        return `${code}.SZ`;
+    }
+    return code;
+}
+
+function binaryToHexagramNumber(binaryString) {
+    const parsed = Number.parseInt(binaryString, 2);
+    if (Number.isNaN(parsed)) return 1;
+    return (parsed % 64) + 1;
+}
+
+function generateHexagramWithChangingLines(stockCode, question) {
+    const now = new Date();
+    const timeBucket = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}-${now.getHours()}-${now.getMinutes()}`;
+    const seedSource = `${stockCode}|${question}|${timeBucket}`;
+    const seededRandom = createSeededRandom(hashStringToInt(seedSource));
+
+    const lines = [];
+    for (let i = 0; i < 6; i += 1) {
+        let sum = 0;
+        for (let c = 0; c < 3; c += 1) {
+            sum += seededRandom() > 0.5 ? 3 : 2;
+        }
+        lines.push(sum);
+    }
+
+    const movingLines = [];
+    const originalBinary = lines.map((line) => (line === 7 || line === 9 ? '1' : '0')).join('');
+    const changedBinary = lines.map((line, idx) => {
+        if (line === 6) {
+            movingLines.push(idx + 1);
+            return '1';
+        }
+        if (line === 9) {
+            movingLines.push(idx + 1);
+            return '0';
+        }
+        return line === 7 ? '1' : '0';
+    }).join('');
+
+    const originalHexagramNumber = binaryToHexagramNumber(originalBinary);
+    const changedHexagramNumber = binaryToHexagramNumber(changedBinary);
+
+    return {
+        lines,
+        movingLines,
+        originalBinary,
+        changedBinary,
+        originalHexagram: HEXAGRAMS[originalHexagramNumber],
+        changedHexagram: HEXAGRAMS[changedHexagramNumber]
+    };
+}
+
+function calculateEMA(values, period) {
+    const result = [];
+    const multiplier = 2 / (period + 1);
+    for (let i = 0; i < values.length; i += 1) {
+        if (i === 0) {
+            result.push(values[i]);
+        } else {
+            result.push((values[i] - result[i - 1]) * multiplier + result[i - 1]);
+        }
+    }
+    return result;
+}
+
+function calculateMACD(closePrices) {
+    const ema12 = calculateEMA(closePrices, 12);
+    const ema26 = calculateEMA(closePrices, 26);
+    const macdLine = ema12.map((v, i) => v - ema26[i]);
+    const signalLine = calculateEMA(macdLine, 9);
+    const histogram = macdLine.map((v, i) => v - signalLine[i]);
+    const last = macdLine.length - 1;
+
+    return {
+        macdLine,
+        signalLine,
+        histogram,
+        latest: {
+            macd: macdLine[last] || 0,
+            signal: signalLine[last] || 0,
+            hist: histogram[last] || 0
+        }
+    };
+}
+
+function calculateATR(candles, period = 14) {
+    if (candles.length < period + 1) return 0;
+    const trs = [];
+    for (let i = 1; i < candles.length; i += 1) {
+        const current = candles[i];
+        const prevClose = candles[i - 1].close;
+        const tr = Math.max(
+            current.high - current.low,
+            Math.abs(current.high - prevClose),
+            Math.abs(current.low - prevClose)
+        );
+        trs.push(tr);
+    }
+
+    let atr = trs.slice(0, period).reduce((s, v) => s + v, 0) / period;
+    for (let i = period; i < trs.length; i += 1) {
+        atr = ((atr * (period - 1)) + trs[i]) / period;
+    }
+    return atr;
+}
+
+function analyzePriceTrend(candles) {
+    if (candles.length < 25) {
+        return { trend: '中性', score: 0, detail: '样本较短，趋势判断中性。' };
+    }
+    const closes = candles.map((c) => c.close);
+    const latest = closes[closes.length - 1];
+    const ma20 = closes.slice(-20).reduce((s, v) => s + v, 0) / 20;
+    const ma5 = closes.slice(-5).reduce((s, v) => s + v, 0) / 5;
+
+    if (latest > ma20 && ma5 > ma20) {
+        return { trend: '上升', score: 2, detail: '收盘价位于MA20上方，短中期趋势偏多。' };
+    }
+    if (latest < ma20 && ma5 < ma20) {
+        return { trend: '下降', score: -2, detail: '收盘价位于MA20下方，短中期趋势偏弱。' };
+    }
+    return { trend: '震荡', score: 0, detail: '短中期均线交错，处于震荡整理状态。' };
+}
+
+function getElementInteraction(selfElement, externalElement) {
+    if (!selfElement || !externalElement) {
+        return { type: '未知', score: 0, text: '五行信息不足，无法判断内外互动。' };
+    }
+    if (selfElement === externalElement) {
+        return { type: '比和', score: 1, text: '内外同气，行情一致性较好。' };
+    }
+    if (ELEMENT_GENERATES[externalElement] === selfElement) {
+        return { type: '生扶', score: 2, text: '外盘生扶内盘，利于信心修复与趋势延续。' };
+    }
+    if (ELEMENT_GENERATES[selfElement] === externalElement) {
+        return { type: '泄秀', score: 0, text: '内盘生外盘，动能外溢，需防止主升段提前消耗。' };
+    }
+    if (ELEMENT_CONTROLS[selfElement] === externalElement) {
+        return { type: '可控', score: 1, text: '内盘可制外压，节奏可控但仍需量能确认。' };
+    }
+    if (ELEMENT_CONTROLS[externalElement] === selfElement) {
+        return { type: '受制', score: -2, text: '外盘克制内盘，短期波动和回撤风险提升。' };
+    }
+    return { type: '中性', score: 0, text: '内外关系中性，建议等待更多共振信号。' };
+}
+
+function getSixKinRelation(lineElement, selfElement) {
+    if (lineElement === selfElement) return '兄弟';
+    if (ELEMENT_GENERATES[lineElement] === selfElement) return '父母';
+    if (ELEMENT_GENERATES[selfElement] === lineElement) return '子孙';
+    if (ELEMENT_CONTROLS[lineElement] === selfElement) return '官鬼';
+    if (ELEMENT_CONTROLS[selfElement] === lineElement) return '妻财';
+    return '兄弟';
+}
+
+function analyzeHexagramElements(hexagramData) {
+    const binary = hexagramData?.originalBinary || '';
+    if (binary.length !== 6) {
+        return {
+            lowerTrigram: { name: '未知', element: '未知' },
+            upperTrigram: { name: '未知', element: '未知' },
+            interaction: { type: '未知', score: 0, text: '卦体不完整，无法计算五行关系。' },
+            lineRelations: [],
+            relationCounts: { 兄弟: 0, 子孙: 0, 妻财: 0, 官鬼: 0, 父母: 0 },
+            movingDetails: []
+        };
+    }
+    const lowerKey = binary.slice(0, 3);
+    const upperKey = binary.slice(3, 6);
+    const lowerTrigram = TRIGRAMS[lowerKey] || { name: '未知', element: '未知' };
+    const upperTrigram = TRIGRAMS[upperKey] || { name: '未知', element: '未知' };
+    const interaction = getElementInteraction(lowerTrigram.element, upperTrigram.element);
+
+    const lineElements = Array.from({ length: 6 }, (_, idx) => (idx < 3 ? lowerTrigram.element : upperTrigram.element));
+    const lineRelations = lineElements.map((element) => getSixKinRelation(element, lowerTrigram.element));
+    const relationCounts = lineRelations.reduce((acc, relation) => {
+        acc[relation] = (acc[relation] || 0) + 1;
+        return acc;
+    }, { 兄弟: 0, 子孙: 0, 妻财: 0, 官鬼: 0, 父母: 0 });
+    const movingDetails = (hexagramData.movingLines || []).map((lineNo) => ({
+        lineNo,
+        label: LINE_LABELS[lineNo - 1] || `第${lineNo}爻`,
+        relation: lineRelations[lineNo - 1] || '未知',
+        element: lineElements[lineNo - 1] || '未知'
+    }));
+
+    return {
+        lowerTrigram,
+        upperTrigram,
+        interaction,
+        lineRelations,
+        relationCounts,
+        movingDetails
+    };
+}
+
+function calculateShiYing(hexagramNumber, originalBinary = '') {
+    const lowerKey = originalBinary.length === 6 ? originalBinary.slice(0, 3) : '';
+    const trigramOrder = ['111', '110', '101', '100', '011', '010', '001', '000'];
+    const shiPattern = [6, 1, 2, 3, 4, 5, 4, 3];
+    const trigramIndex = trigramOrder.indexOf(lowerKey);
+    const shi = trigramIndex >= 0 ? shiPattern[trigramIndex] : ((hexagramNumber - 1) % 6) + 1;
+    const ying = ((shi + 2 - 1) % 6) + 1;
+    const elementMeta = originalBinary.length === 6 ? analyzeHexagramElements({ originalBinary, movingLines: [] }) : null;
+    const relation = elementMeta
+        ? `世应相对，${elementMeta.lowerTrigram.name}${elementMeta.upperTrigram.name}卦呈「${elementMeta.interaction.type}」关系。`
+        : '世应相对，重视内外力量平衡。';
+    return { shi, ying, relation, source: trigramIndex >= 0 ? '八宫世应简化定位' : '基础定位' };
+}
+
+function getYongShenInterpretation(questionType, hexagramData) {
+    const elementAnalysis = analyzeHexagramElements(hexagramData);
+    const map = {
+        买入: {
+            focus: '重点看世爻 + 五爻',
+            strategy: '世爻稳、五爻旺时可分批进场；若动爻集中上爻则谨慎追高。',
+            priorities: ['妻财', '子孙']
+        },
+        卖出: {
+            focus: '重点看应爻 + 上爻',
+            strategy: '应爻转弱且上爻动，优先减仓锁利。',
+            priorities: ['官鬼', '兄弟']
+        },
+        持仓: {
+            focus: '重点看世应协调度',
+            strategy: '世应和谐则续持，冲突明显则降低杠杆。',
+            priorities: ['父母', '官鬼']
+        },
+        短线: {
+            focus: '重点看动爻密度 + 三四五爻',
+            strategy: '动爻过多代表噪音增大，短线需缩短持仓周期。',
+            priorities: ['妻财', '兄弟']
+        },
+        长线: {
+            focus: '重点看本卦气势 + 变卦方向',
+            strategy: '本卦稳健且变卦向上，可采用分段布局。',
+            priorities: ['父母', '子孙']
+        }
+    };
+    const selected = map[questionType] || map.持仓;
+    const priorityCount = selected.priorities.reduce((sum, p) => sum + (elementAnalysis.relationCounts[p] || 0), 0);
+    const movingPriority = elementAnalysis.movingDetails.filter((d) => selected.priorities.includes(d.relation)).length;
+    const adverseCount = elementAnalysis.relationCounts.官鬼 || 0;
+
+    let score = elementAnalysis.interaction.score;
+    if (priorityCount >= 2) score += 1;
+    if (movingPriority >= 1) score += 1;
+    if (adverseCount >= 3) score -= 1;
+    score = Math.max(-2, Math.min(3, score));
+
+    const strengthLevel = score >= 2 ? '强' : (score <= -1 ? '弱' : '中');
+    const movingSummary = elementAnalysis.movingDetails.length
+        ? elementAnalysis.movingDetails.map((d) => `${d.label}-${d.relation}`).join('，')
+        : '无动爻';
+    const sixKinSnapshot = Object.entries(elementAnalysis.relationCounts)
+        .map(([k, v]) => `${k}${v}`)
+        .join(' / ');
+    const movingCount = hexagramData.movingLines.length;
+    const addendum = movingCount >= 3
+        ? '当前动爻较多，趋势易变，建议降低单次下注幅度。'
+        : '当前动爻较少，结构相对稳定，适合按计划执行。';
+    return {
+        ...selected,
+        addendum,
+        score,
+        strengthLevel,
+        lowerTrigram: elementAnalysis.lowerTrigram,
+        upperTrigram: elementAnalysis.upperTrigram,
+        interaction: elementAnalysis.interaction,
+        movingSummary,
+        sixKinSnapshot,
+        prioritiesText: selected.priorities.join(' + ')
+    };
+}
+
+function getSignalFromMACD(macdData) {
+    const { macd, signal, hist } = macdData.latest;
+    if (macd > signal && hist > 0) {
+        return { signal: '金叉偏多', score: 2, text: 'MACD位于信号线上方，短线动能偏强。' };
+    }
+    if (macd < signal && hist < 0) {
+        return { signal: '死叉偏空', score: -2, text: 'MACD位于信号线下方，短线动能偏弱。' };
+    }
+    return { signal: '缠绕震荡', score: 0, text: 'MACD在零轴附近缠绕，方向不明确。' };
+}
+
+function analyzeNewsSentiment(articles) {
+    if (!articles || articles.length === 0) {
+        return { sentiment: '中性', score: 0, summary: '未获取新闻或未启用API。' };
+    }
+    const positiveWords = ['上涨', '突破', '增长', '利好', '回购', '创新高', '增持', '超预期', '合作'];
+    const negativeWords = ['下跌', '暴雷', '减持', '亏损', '处罚', '风险', '违约', '调查', '裁员', '下修'];
+
+    let score = 0;
+    articles.forEach((a) => {
+        const text = `${a.title || ''} ${a.description || ''}`;
+        positiveWords.forEach((w) => { if (text.includes(w)) score += 1; });
+        negativeWords.forEach((w) => { if (text.includes(w)) score -= 1; });
+    });
+
+    if (score > 2) return { sentiment: '偏多', score: 2, summary: '新闻关键词整体偏正面，情绪支持风险偏好。' };
+    if (score < -2) return { sentiment: '偏空', score: -2, summary: '新闻关键词整体偏负面，需警惕突发回撤。' };
+    return { sentiment: '中性', score: 0, summary: '新闻情绪分化，未形成一致方向。' };
+}
+
+function generateComprehensiveStockJudgment(payload) {
+    const { hexagramData, macdSignal, priceTrend, newsSentiment, questionType, yongShenScore = 0 } = payload;
+
+    const baseHexScore = hexagramData.originalHexagram.energy + Math.sign(hexagramData.changedHexagram.energy || 0);
+    const movingPenalty = hexagramData.movingLines.length >= 4 ? -1 : 0;
+    const totalScore = baseHexScore + macdSignal.score + priceTrend.score + newsSentiment.score + movingPenalty + yongShenScore;
+
+    let confidence = '中等';
+    if (Math.abs(totalScore) >= 5) confidence = '高';
+    else if (Math.abs(totalScore) <= 2) confidence = '低';
+
+    let action = '观望等待';
+    if (totalScore >= 5) action = '较强看多（可分批买入）';
+    else if (totalScore >= 2) action = '谨慎偏多（回调布局）';
+    else if (totalScore <= -5) action = '较强看空（减仓防守）';
+    else if (totalScore <= -2) action = '谨慎偏空（控制仓位）';
+
+    const reasons = [
+        `卦象：${hexagramData.originalHexagram.name} → ${hexagramData.changedHexagram.name}`,
+        `MACD：${macdSignal.signal}`,
+        `趋势：${priceTrend.trend}`,
+        `新闻：${newsSentiment.sentiment}`,
+        `用神强度：${yongShenScore > 0 ? `+${yongShenScore}` : yongShenScore}`,
+        `问题类型：${questionType}`
+    ];
+
+    return { totalScore, confidence, action, reasons };
+}
+
+async function fetchYahooStockData(rawCode) {
+    const symbol = normalizeStockCode(rawCode);
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=6mo&interval=1d`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Yahoo接口失败: ${response.status}`);
+
+    const data = await response.json();
+    const result = data?.chart?.result?.[0];
+    if (!result) throw new Error('Yahoo返回数据为空');
+
+    const timestamps = result.timestamp || [];
+    const quote = result.indicators?.quote?.[0];
+    if (!quote) throw new Error('Yahoo指标数据缺失');
+
+    const candles = [];
+    for (let i = 0; i < timestamps.length; i += 1) {
+        const open = quote.open?.[i];
+        const high = quote.high?.[i];
+        const low = quote.low?.[i];
+        const close = quote.close?.[i];
+        const volume = quote.volume?.[i] ?? 0;
+        if ([open, high, low, close].some((v) => typeof v !== 'number')) continue;
+        candles.push({
+            date: new Date(timestamps[i] * 1000).toISOString().slice(0, 10),
+            open,
+            high,
+            low,
+            close,
+            volume
+        });
+    }
+    if (candles.length < 35) throw new Error('有效K线数量不足');
+
+    return {
+        symbol,
+        currentPrice: candles[candles.length - 1].close,
+        candles,
+        isRealtime: true
+    };
+}
+
+function generateMockStockData(rawCode) {
+    const symbol = normalizeStockCode(rawCode);
+    const seed = hashStringToInt(`${symbol}-${new Date().toISOString().slice(0, 10)}`);
+    const random = createSeededRandom(seed);
+    const candles = [];
+    let close = 40 + random() * 90;
+
+    for (let i = 120; i >= 0; i -= 1) {
+        const drift = (random() - 0.48) * 2.8;
+        const open = close;
+        close = Math.max(3, open + drift);
+        const high = Math.max(open, close) + random() * 1.4;
+        const low = Math.max(1, Math.min(open, close) - random() * 1.2);
+        const volume = Math.round((300000 + random() * 1500000) * (1 + Math.abs(drift) / 4));
+        const date = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+        candles.push({ date, open, high, low, close, volume });
+    }
+
+    return {
+        symbol,
+        currentPrice: candles[candles.length - 1].close,
+        candles,
+        isRealtime: false
+    };
+}
+
+async function fetchStockData(rawCode, useRealtime) {
+    if (!useRealtime) return generateMockStockData(rawCode);
+    try {
+        return await fetchYahooStockData(rawCode);
+    } catch (error) {
+        console.warn('实时数据失败，切换模拟数据：', error.message);
+        const mock = generateMockStockData(rawCode);
+        return { ...mock, realtimeError: error.message };
+    }
+}
+
+async function fetchNews(stockCode, apiKey) {
+    if (!apiKey || !apiKey.trim()) return { articles: [], source: '未启用API' };
+    const query = encodeURIComponent(`${stockCode} 股票 OR 上市公司`);
+    const url = `https://gnews.io/api/v4/search?q=${query}&lang=zh&country=cn&max=8&apikey=${encodeURIComponent(apiKey.trim())}`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`GNews请求失败: ${response.status}`);
+    const data = await response.json();
+    return { articles: data.articles || [], source: 'GNews 实时' };
+}
+
+function calculateRiskControl(currentPrice, atr, capital, riskPercent) {
+    const stopLoss = Math.max(0.01, currentPrice - atr * 2.2);
+    const maxLoss = capital * (riskPercent / 100);
+    const perShareRisk = Math.max(0.01, currentPrice - stopLoss);
+    const shares = Math.floor(maxLoss / perShareRisk);
+    return { stopLoss, maxLoss, perShareRisk, shares };
+}
+
+function renderHexagram(lines, movingLines, title) {
+    const lineHtml = [...lines].reverse().map((line, reverseIndex) => {
+        const lineNumber = 6 - reverseIndex;
+        const isYang = line === 7 || line === 9;
+        const isMoving = movingLines.includes(lineNumber);
+        const mark = isMoving ? (line === 6 ? '老阴' : '老阳') : '';
+        return `
+            <div class="hex-line ${isYang ? '' : 'yin'} ${isMoving ? 'moving' : ''}">
+                ${mark ? `<span class="line-tag">${mark}</span>` : ''}
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <div class="hex-visual">
+            <div style="font-weight:700; margin-bottom:10px; color:#fbbf24;">${title}</div>
+            <div style="display:inline-block; position:relative; padding-right:72px;">${lineHtml}</div>
+        </div>
+    `;
+}
+
+function renderMovingLineInterpretations(movingLines) {
+    if (movingLines.length === 0) {
+        return '<div class="advice-box">本次无动爻：卦意偏稳，当前更适合等待技术信号确认后再行动。</div>';
+    }
+    const content = movingLines.map((lineNo) => `<li>第${lineNo}爻：${MOVING_LINE_INTERPRETATIONS[lineNo]}</li>`).join('');
+    return `<div class="advice-box"><strong>动爻解读：</strong><ul style="margin:8px 0 0 20px;">${content}</ul></div>`;
+}
+
+function renderComprehensiveJudgment(judgment) {
+    const scoreClass = judgment.totalScore > 0 ? 'bullish' : (judgment.totalScore < 0 ? 'bearish' : 'neutral');
+    return `
+        <div class="card gold-card">
+            <h2 class="section-title">🌟 专业综合判断（多源共振）</h2>
+            <div class="metric-wrap" style="margin-bottom:14px;">
+                <div class="metric">
+                    <div>综合评分</div>
+                    <div class="metric-value ${scoreClass}">${judgment.totalScore}</div>
+                </div>
+                <div class="metric">
+                    <div>信心等级</div>
+                    <div class="metric-value">${judgment.confidence}</div>
+                </div>
+                <div class="metric" style="grid-column: span 2;">
+                    <div>建议动作</div>
+                    <div class="metric-value" style="font-size:1.1rem;">${judgment.action}</div>
+                </div>
+            </div>
+            <div class="advice-box">
+                <strong>判定依据：</strong>
+                <ul style="margin:8px 0 0 20px;">
+                    ${judgment.reasons.map((r) => `<li>${r}</li>`).join('')}
+                </ul>
+            </div>
+        </div>
+    `;
+}
+
+function renderNews(articles, sentimentResult, source) {
+    const html = (articles || []).slice(0, 6).map((item) => `
+        <div class="news-item">
+            <a href="${item.url}" target="_blank" rel="noopener noreferrer">${item.title || '无标题'}</a>
+            <div style="color:#94a3b8; font-size:0.85rem; margin-top:4px;">${item.description || '暂无摘要'}</div>
+            <div style="color:#64748b; font-size:0.75rem; margin-top:4px;">${item.source?.name || '未知来源'} · ${(item.publishedAt || '').replace('T', ' ').slice(0, 16)}</div>
+        </div>
+    `).join('');
+
+    return `
+        <div class="card">
+            <h2 class="section-title">📰 新闻与情感分析</h2>
+            <div class="advice-box" style="margin-bottom:12px;">
+                新闻源：${source}
+                <br>情感结论：<strong class="${sentimentResult.score > 0 ? 'bullish' : (sentimentResult.score < 0 ? 'bearish' : 'neutral')}">${sentimentResult.sentiment}</strong>
+                <br>${sentimentResult.summary}
+            </div>
+            ${html || '<div class="advice-box">暂无新闻数据，可填写 GNews API Key 获取实时新闻。</div>'}
+        </div>
+    `;
+}
+
+function formatCurrency(value) {
+    return Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
+}
+
+function destroyCharts() {
+    Object.keys(chartRefs).forEach((k) => {
+        if (chartRefs[k]) {
+            chartRefs[k].destroy();
+            chartRefs[k] = null;
+        }
+    });
+}
+
+function renderCharts(stockData, macdData) {
+    destroyCharts();
+
+    const labels = stockData.candles.map((c) => c.date);
+    const closes = stockData.candles.map((c) => c.close);
+    const volumes = stockData.candles.map((c) => c.volume);
+    const histColor = macdData.histogram.map((v) => (v >= 0 ? 'rgba(74, 222, 128, 0.6)' : 'rgba(248, 113, 113, 0.6)'));
+
+    chartRefs.price = new Chart(document.getElementById('priceChart'), {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                {
+                    label: '收盘价',
+                    data: closes,
+                    borderColor: '#fbbf24',
+                    backgroundColor: 'rgba(251, 191, 36, 0.08)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    tension: 0.2,
+                    fill: true
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { ticks: { color: '#94a3b8', maxTicksLimit: 8 }, grid: { color: 'rgba(148, 163, 184, 0.12)' } },
+                y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148, 163, 184, 0.12)' } }
+            },
+            plugins: { legend: { labels: { color: '#e2e8f0' } } }
+        }
+    });
+
+    chartRefs.volume = new Chart(document.getElementById('volumeChart'), {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [{ label: '成交量', data: volumes, backgroundColor: 'rgba(59, 130, 246, 0.5)' }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { ticks: { color: '#94a3b8', maxTicksLimit: 8 }, grid: { color: 'rgba(148, 163, 184, 0.12)' } },
+                y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148, 163, 184, 0.12)' } }
+            },
+            plugins: { legend: { labels: { color: '#e2e8f0' } } }
+        }
+    });
+
+    chartRefs.macd = new Chart(document.getElementById('macdChart'), {
+        data: {
+            labels,
+            datasets: [
+                {
+                    type: 'line',
+                    label: 'MACD',
+                    data: macdData.macdLine,
+                    borderColor: '#4ade80',
+                    pointRadius: 0,
+                    borderWidth: 2
+                },
+                {
+                    type: 'line',
+                    label: 'Signal',
+                    data: macdData.signalLine,
+                    borderColor: '#f87171',
+                    pointRadius: 0,
+                    borderWidth: 2
+                },
+                {
+                    type: 'bar',
+                    label: 'Histogram',
+                    data: macdData.histogram,
+                    backgroundColor: histColor
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { ticks: { color: '#94a3b8', maxTicksLimit: 8 }, grid: { color: 'rgba(148, 163, 184, 0.12)' } },
+                y: { ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148, 163, 184, 0.12)' } }
+            },
+            plugins: { legend: { labels: { color: '#e2e8f0' } } }
+        }
+    });
+}
+
+function renderKlineTable(candles) {
+    const rows = candles.slice(-20).reverse().map((c) => `
+        <tr>
+            <td>${c.date}</td>
+            <td>${c.open.toFixed(2)}</td>
+            <td>${c.high.toFixed(2)}</td>
+            <td>${c.low.toFixed(2)}</td>
+            <td>${c.close.toFixed(2)}</td>
+            <td>${Number(c.volume).toLocaleString('zh-CN')}</td>
+        </tr>
+    `).join('');
+    return `
+        <table>
+            <thead>
+                <tr>
+                    <th>日期</th><th>开盘</th><th>最高</th><th>最低</th><th>收盘</th><th>成交量</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
+}
+
+function getHistoryRecords() {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return [...FALLBACK_HISTORY];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [...FALLBACK_HISTORY];
+    } catch (error) {
+        return [...FALLBACK_HISTORY];
+    }
+}
+
+function saveHistoryRecords(records) {
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    } catch (error) {
+        FALLBACK_HISTORY.length = 0;
+        records.forEach((r) => FALLBACK_HISTORY.push(r));
+    }
+}
+
+function saveAnalysisToHistory(entry) {
+    const history = getHistoryRecords();
+    history.unshift(entry);
+    const sliced = history.slice(0, HISTORY_LIMIT);
+    saveHistoryRecords(sliced);
+}
+
+function renderHistoryList() {
+    const historyList = document.getElementById('historyList');
+    const history = getHistoryRecords();
+    if (history.length === 0) {
+        historyList.innerHTML = '<div style="color:#94a3b8;">暂无历史记录</div>';
+        return;
+    }
+    historyList.innerHTML = history.map((item, index) => `
+        <div class="history-item" onclick="showHistoryDetail(${index})">
+            <div><strong>${item.stockCode}</strong> · ${item.questionType} · ${item.action}</div>
+            <div style="color:#94a3b8; font-size:0.82rem; margin-top:4px;">
+                ${item.originalHexagram} → ${item.changedHexagram} | 动爻: ${item.movingLinesText} | ${item.timestamp}
+            </div>
+        </div>
+    `).join('');
+}
+
+function showHistoryDetail(index) {
+    const history = getHistoryRecords();
+    const item = history[index];
+    if (!item) return;
+    alert(
+        `时间: ${item.timestamp}\n` +
+        `股票: ${item.stockCode}\n` +
+        `问题类型: ${item.questionType}\n` +
+        `本卦: ${item.originalHexagram}\n` +
+        `变卦: ${item.changedHexagram}\n` +
+        `动爻: ${item.movingLinesText}\n` +
+        `数据源: ${item.dataType}\n` +
+        `综合建议: ${item.action}`
+    );
+}
+
+function clearHistory() {
+    if (!confirm('确定清空全部历史记录吗？')) return;
+    saveHistoryRecords([]);
+    renderHistoryList();
+}
+
+function getInputValue(id) {
+    return document.getElementById(id).value;
+}
+
+function setButtonsLoading(isLoading) {
+    const realtimeBtn = document.getElementById('analyzeRealtimeBtn');
+    const mockBtn = document.getElementById('analyzeMockBtn');
+    realtimeBtn.disabled = isLoading;
+    mockBtn.disabled = isLoading;
+    if (isLoading) {
+        realtimeBtn.innerHTML = '<span class="loading"></span>分析中...';
+        mockBtn.innerHTML = '<span class="loading"></span>分析中...';
+    } else {
+        realtimeBtn.innerHTML = '🔮 问易经 + 实时数据 + 新闻分析';
+        mockBtn.innerHTML = '📊 仅用模拟数据快速分析';
+    }
+}
+
+async function performAnalysis(useRealtime) {
+    const stockCode = getInputValue('stockCode').trim();
+    const capital = Number(getInputValue('capital'));
+    const riskPercent = Number(getInputValue('riskPercent'));
+    const newsApiKey = getInputValue('newsApiKey');
+    const question = getInputValue('question').trim();
+    const questionType = getInputValue('questionType');
+    const advancedMode = document.getElementById('advancedMode').checked;
+    const resultsNode = document.getElementById('results');
+
+    if (!stockCode || !question) {
+        alert('请填写股票代码与问题描述。');
+        return;
+    }
+    if (capital <= 0 || riskPercent <= 0) {
+        alert('资金与风险比例必须大于0。');
+        return;
+    }
+
+    setButtonsLoading(true);
+    try {
+        const hexagramData = generateHexagramWithChangingLines(stockCode, question);
+        const stockData = await fetchStockData(stockCode, useRealtime);
+        const closePrices = stockData.candles.map((c) => c.close);
+        const macdData = calculateMACD(closePrices);
+        const macdSignal = getSignalFromMACD(macdData);
+        const atr = calculateATR(stockData.candles, 14);
+        const riskResult = calculateRiskControl(stockData.currentPrice, atr, capital, riskPercent);
+        const trendResult = analyzePriceTrend(stockData.candles);
+
+        let newsResult = { articles: [], source: '未启用API' };
+        try {
+            newsResult = await fetchNews(stockCode, newsApiKey);
+        } catch (error) {
+            newsResult = { articles: [], source: `GNews失败：${error.message}` };
+        }
+        const sentimentResult = analyzeNewsSentiment(newsResult.articles);
+
+        const yongShen = getYongShenInterpretation(questionType, hexagramData);
+        const judgment = generateComprehensiveStockJudgment({
+            hexagramData,
+            macdSignal,
+            priceTrend: trendResult,
+            newsSentiment: sentimentResult,
+            questionType,
+            yongShenScore: yongShen.score
+        });
+        const shiYing = calculateShiYing(hexagramData.originalHexagram.number, hexagramData.originalBinary);
+
+        const movingLinesText = hexagramData.movingLines.length ? hexagramData.movingLines.join('、') : '无';
+        resultsNode.style.display = 'block';
+        resultsNode.innerHTML = `
+            ${renderComprehensiveJudgment(judgment)}
+            <div class="result-grid">
+                <div class="card">
+                    <h2 class="section-title">🧿 易经卦象分析</h2>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+                        ${renderHexagram(hexagramData.lines, hexagramData.movingLines, `本卦：${hexagramData.originalHexagram.name}`)}
+                        ${renderHexagram(
+                            hexagramData.lines.map((line) => (line === 6 ? 7 : (line === 9 ? 8 : line))),
+                            [],
+                            `变卦：${hexagramData.changedHexagram.name}`
+                        )}
+                    </div>
+                    <div class="advice-box" style="margin-top:12px;">
+                        <strong>本卦卦辞：</strong>${hexagramData.originalHexagram.guaCi}<br>
+                        <strong>本卦建议：</strong>${hexagramData.originalHexagram.stockAdvice}<br>
+                        <strong>变卦建议：</strong>${hexagramData.changedHexagram.stockAdvice}
+                    </div>
+                    <div style="margin-top:12px;">${renderMovingLineInterpretations(hexagramData.movingLines)}</div>
+                    ${advancedMode ? `
+                        <div class="advice-box" style="margin-top:12px;">
+                            <strong>高级模式（世应 + 用神）</strong><br>
+                            世爻：第${shiYing.shi}爻｜应爻：第${shiYing.ying}爻<br>
+                            ${shiYing.relation}（${shiYing.source}）<br>
+                            <strong>卦体五行：</strong>下卦${yongShen.lowerTrigram.name}(${yongShen.lowerTrigram.element}) / 上卦${yongShen.upperTrigram.name}(${yongShen.upperTrigram.element})<br>
+                            <strong>内外关系：</strong>${yongShen.interaction.type}｜${yongShen.interaction.text}<br>
+                            <strong>用神重点：</strong>${yongShen.focus}（六亲优先：${yongShen.prioritiesText}）<br>
+                            <strong>六亲分布：</strong>${yongShen.sixKinSnapshot}<br>
+                            <strong>动爻六亲：</strong>${yongShen.movingSummary}<br>
+                            <strong>用神强度：</strong>${yongShen.strengthLevel}<br>
+                            <strong>策略提示：</strong>${yongShen.strategy}<br>
+                            <span style="color:#94a3b8;">${yongShen.addendum}</span>
+                        </div>
+                    ` : ''}
+                </div>
+
+                <div class="card">
+                    <h2 class="section-title">📈 技术分析与风控</h2>
+                    <div class="metric-wrap">
+                        <div class="metric">
+                            <div>当前价格</div>
+                            <div class="metric-value">${stockData.currentPrice.toFixed(2)}</div>
+                        </div>
+                        <div class="metric">
+                            <div>ATR(14)</div>
+                            <div class="metric-value">${atr.toFixed(2)}</div>
+                        </div>
+                        <div class="metric">
+                            <div>止损价</div>
+                            <div class="metric-value">${riskResult.stopLoss.toFixed(2)}</div>
+                        </div>
+                        <div class="metric">
+                            <div>建议股数</div>
+                            <div class="metric-value">${riskResult.shares.toLocaleString('zh-CN')}</div>
+                        </div>
+                    </div>
+                    <div class="advice-box" style="margin-top:12px;">
+                        最大亏损金额：${formatCurrency(riskResult.maxLoss)} 元<br>
+                        单股风险：${riskResult.perShareRisk.toFixed(2)}<br>
+                        MACD信号：<strong class="${macdSignal.score > 0 ? 'bullish' : (macdSignal.score < 0 ? 'bearish' : 'neutral')}">${macdSignal.signal}</strong><br>
+                        趋势判断：<strong>${trendResult.trend}</strong>（${trendResult.detail}）
+                    </div>
+                    <div class="data-source" style="margin-top:8px;">
+                        数据来源：${stockData.isRealtime ? 'Yahoo Finance 实时' : '模拟数据'}
+                        ${stockData.isRealtime ? '<span class="real-badge">REAL-TIME</span>' : ''}
+                        ${stockData.realtimeError ? ` | 实时兜底原因：${stockData.realtimeError}` : ''}
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2 class="section-title">📊 图表与K线明细</h2>
+                <div class="chart-container" style="height:260px;"><canvas id="priceChart"></canvas></div>
+                <div class="chart-container" style="height:190px;"><canvas id="volumeChart"></canvas></div>
+                <div class="chart-container" style="height:220px;"><canvas id="macdChart"></canvas></div>
+                ${renderKlineTable(stockData.candles)}
+            </div>
+
+            ${renderNews(newsResult.articles, sentimentResult, newsResult.source)}
+        `;
+
+        renderCharts(stockData, macdData);
+        saveAnalysisToHistory({
+            timestamp: new Date().toLocaleString('zh-CN', { hour12: false }),
+            stockCode: normalizeStockCode(stockCode),
+            questionType,
+            originalHexagram: hexagramData.originalHexagram.name,
+            changedHexagram: hexagramData.changedHexagram.name,
+            movingLinesText,
+            dataType: stockData.isRealtime ? '实时/兜底模拟' : '模拟',
+            action: judgment.action
+        });
+        renderHistoryList();
+    } catch (error) {
+        console.error(error);
+        alert(`分析失败：${error.message}`);
+    } finally {
+        setButtonsLoading(false);
+    }
+}
+
+renderHistoryList();
+</script>
+</body>
+</html>
