@@ -371,6 +371,20 @@ const MOVING_LINE_INTERPRETATIONS = {
     6: '上爻动：阶段性极值信号，常提示高位回撤或低位反抽尾声。'
 };
 
+const TRIGRAMS = {
+    '111': { name: '乾', element: '金' },
+    '110': { name: '兑', element: '金' },
+    '101': { name: '离', element: '火' },
+    '100': { name: '震', element: '木' },
+    '011': { name: '巽', element: '木' },
+    '010': { name: '坎', element: '水' },
+    '001': { name: '艮', element: '土' },
+    '000': { name: '坤', element: '土' }
+};
+const ELEMENT_GENERATES = { 木: '火', 火: '土', 土: '金', 金: '水', 水: '木' };
+const ELEMENT_CONTROLS = { 木: '土', 土: '水', 水: '火', 火: '金', 金: '木' };
+const LINE_LABELS = ['初爻', '二爻', '三爻', '四爻', '五爻', '上爻'];
+
 const STORAGE_KEY = 'iching_stock_history_v41';
 const HISTORY_LIMIT = 20;
 const FALLBACK_HISTORY = [];
@@ -524,42 +538,155 @@ function analyzePriceTrend(candles) {
     return { trend: '震荡', score: 0, detail: '短中期均线交错，处于震荡整理状态。' };
 }
 
-function calculateShiYing(hexagramNumber) {
-    const shi = ((hexagramNumber - 1) % 6) + 1;
+function getElementInteraction(selfElement, externalElement) {
+    if (!selfElement || !externalElement) {
+        return { type: '未知', score: 0, text: '五行信息不足，无法判断内外互动。' };
+    }
+    if (selfElement === externalElement) {
+        return { type: '比和', score: 1, text: '内外同气，行情一致性较好。' };
+    }
+    if (ELEMENT_GENERATES[externalElement] === selfElement) {
+        return { type: '生扶', score: 2, text: '外盘生扶内盘，利于信心修复与趋势延续。' };
+    }
+    if (ELEMENT_GENERATES[selfElement] === externalElement) {
+        return { type: '泄秀', score: 0, text: '内盘生外盘，动能外溢，需防止主升段提前消耗。' };
+    }
+    if (ELEMENT_CONTROLS[selfElement] === externalElement) {
+        return { type: '可控', score: 1, text: '内盘可制外压，节奏可控但仍需量能确认。' };
+    }
+    if (ELEMENT_CONTROLS[externalElement] === selfElement) {
+        return { type: '受制', score: -2, text: '外盘克制内盘，短期波动和回撤风险提升。' };
+    }
+    return { type: '中性', score: 0, text: '内外关系中性，建议等待更多共振信号。' };
+}
+
+function getSixKinRelation(lineElement, selfElement) {
+    if (lineElement === selfElement) return '兄弟';
+    if (ELEMENT_GENERATES[lineElement] === selfElement) return '父母';
+    if (ELEMENT_GENERATES[selfElement] === lineElement) return '子孙';
+    if (ELEMENT_CONTROLS[lineElement] === selfElement) return '官鬼';
+    if (ELEMENT_CONTROLS[selfElement] === lineElement) return '妻财';
+    return '兄弟';
+}
+
+function analyzeHexagramElements(hexagramData) {
+    const binary = hexagramData?.originalBinary || '';
+    if (binary.length !== 6) {
+        return {
+            lowerTrigram: { name: '未知', element: '未知' },
+            upperTrigram: { name: '未知', element: '未知' },
+            interaction: { type: '未知', score: 0, text: '卦体不完整，无法计算五行关系。' },
+            lineRelations: [],
+            relationCounts: { 兄弟: 0, 子孙: 0, 妻财: 0, 官鬼: 0, 父母: 0 },
+            movingDetails: []
+        };
+    }
+    const lowerKey = binary.slice(0, 3);
+    const upperKey = binary.slice(3, 6);
+    const lowerTrigram = TRIGRAMS[lowerKey] || { name: '未知', element: '未知' };
+    const upperTrigram = TRIGRAMS[upperKey] || { name: '未知', element: '未知' };
+    const interaction = getElementInteraction(lowerTrigram.element, upperTrigram.element);
+
+    const lineElements = Array.from({ length: 6 }, (_, idx) => (idx < 3 ? lowerTrigram.element : upperTrigram.element));
+    const lineRelations = lineElements.map((element) => getSixKinRelation(element, lowerTrigram.element));
+    const relationCounts = lineRelations.reduce((acc, relation) => {
+        acc[relation] = (acc[relation] || 0) + 1;
+        return acc;
+    }, { 兄弟: 0, 子孙: 0, 妻财: 0, 官鬼: 0, 父母: 0 });
+    const movingDetails = (hexagramData.movingLines || []).map((lineNo) => ({
+        lineNo,
+        label: LINE_LABELS[lineNo - 1] || `第${lineNo}爻`,
+        relation: lineRelations[lineNo - 1] || '未知',
+        element: lineElements[lineNo - 1] || '未知'
+    }));
+
+    return {
+        lowerTrigram,
+        upperTrigram,
+        interaction,
+        lineRelations,
+        relationCounts,
+        movingDetails
+    };
+}
+
+function calculateShiYing(hexagramNumber, originalBinary = '') {
+    const lowerKey = originalBinary.length === 6 ? originalBinary.slice(0, 3) : '';
+    const trigramOrder = ['111', '110', '101', '100', '011', '010', '001', '000'];
+    const shiPattern = [6, 1, 2, 3, 4, 5, 4, 3];
+    const trigramIndex = trigramOrder.indexOf(lowerKey);
+    const shi = trigramIndex >= 0 ? shiPattern[trigramIndex] : ((hexagramNumber - 1) % 6) + 1;
     const ying = ((shi + 2 - 1) % 6) + 1;
-    const relation = shi === ying ? '世应同位，内外信息趋同。' : '世应相对，重视内外力量平衡。';
-    return { shi, ying, relation };
+    const elementMeta = originalBinary.length === 6 ? analyzeHexagramElements({ originalBinary, movingLines: [] }) : null;
+    const relation = elementMeta
+        ? `世应相对，${elementMeta.lowerTrigram.name}${elementMeta.upperTrigram.name}卦呈「${elementMeta.interaction.type}」关系。`
+        : '世应相对，重视内外力量平衡。';
+    return { shi, ying, relation, source: trigramIndex >= 0 ? '八宫世应简化定位' : '基础定位' };
 }
 
 function getYongShenInterpretation(questionType, hexagramData) {
+    const elementAnalysis = analyzeHexagramElements(hexagramData);
     const map = {
         买入: {
             focus: '重点看世爻 + 五爻',
-            strategy: '世爻稳、五爻旺时可分批进场；若动爻集中上爻则谨慎追高。'
+            strategy: '世爻稳、五爻旺时可分批进场；若动爻集中上爻则谨慎追高。',
+            priorities: ['妻财', '子孙']
         },
         卖出: {
             focus: '重点看应爻 + 上爻',
-            strategy: '应爻转弱且上爻动，优先减仓锁利。'
+            strategy: '应爻转弱且上爻动，优先减仓锁利。',
+            priorities: ['官鬼', '兄弟']
         },
         持仓: {
             focus: '重点看世应协调度',
-            strategy: '世应和谐则续持，冲突明显则降低杠杆。'
+            strategy: '世应和谐则续持，冲突明显则降低杠杆。',
+            priorities: ['父母', '官鬼']
         },
         短线: {
             focus: '重点看动爻密度 + 三四五爻',
-            strategy: '动爻过多代表噪音增大，短线需缩短持仓周期。'
+            strategy: '动爻过多代表噪音增大，短线需缩短持仓周期。',
+            priorities: ['妻财', '兄弟']
         },
         长线: {
             focus: '重点看本卦气势 + 变卦方向',
-            strategy: '本卦稳健且变卦向上，可采用分段布局。'
+            strategy: '本卦稳健且变卦向上，可采用分段布局。',
+            priorities: ['父母', '子孙']
         }
     };
     const selected = map[questionType] || map.持仓;
+    const priorityCount = selected.priorities.reduce((sum, p) => sum + (elementAnalysis.relationCounts[p] || 0), 0);
+    const movingPriority = elementAnalysis.movingDetails.filter((d) => selected.priorities.includes(d.relation)).length;
+    const adverseCount = elementAnalysis.relationCounts.官鬼 || 0;
+
+    let score = elementAnalysis.interaction.score;
+    if (priorityCount >= 2) score += 1;
+    if (movingPriority >= 1) score += 1;
+    if (adverseCount >= 3) score -= 1;
+    score = Math.max(-2, Math.min(3, score));
+
+    const strengthLevel = score >= 2 ? '强' : (score <= -1 ? '弱' : '中');
+    const movingSummary = elementAnalysis.movingDetails.length
+        ? elementAnalysis.movingDetails.map((d) => `${d.label}-${d.relation}`).join('，')
+        : '无动爻';
+    const sixKinSnapshot = Object.entries(elementAnalysis.relationCounts)
+        .map(([k, v]) => `${k}${v}`)
+        .join(' / ');
     const movingCount = hexagramData.movingLines.length;
     const addendum = movingCount >= 3
         ? '当前动爻较多，趋势易变，建议降低单次下注幅度。'
         : '当前动爻较少，结构相对稳定，适合按计划执行。';
-    return { ...selected, addendum };
+    return {
+        ...selected,
+        addendum,
+        score,
+        strengthLevel,
+        lowerTrigram: elementAnalysis.lowerTrigram,
+        upperTrigram: elementAnalysis.upperTrigram,
+        interaction: elementAnalysis.interaction,
+        movingSummary,
+        sixKinSnapshot,
+        prioritiesText: selected.priorities.join(' + ')
+    };
 }
 
 function getSignalFromMACD(macdData) {
@@ -593,11 +720,11 @@ function analyzeNewsSentiment(articles) {
 }
 
 function generateComprehensiveStockJudgment(payload) {
-    const { hexagramData, macdSignal, priceTrend, newsSentiment, questionType } = payload;
+    const { hexagramData, macdSignal, priceTrend, newsSentiment, questionType, yongShenScore = 0 } = payload;
 
     const baseHexScore = hexagramData.originalHexagram.energy + Math.sign(hexagramData.changedHexagram.energy || 0);
     const movingPenalty = hexagramData.movingLines.length >= 4 ? -1 : 0;
-    const totalScore = baseHexScore + macdSignal.score + priceTrend.score + newsSentiment.score + movingPenalty;
+    const totalScore = baseHexScore + macdSignal.score + priceTrend.score + newsSentiment.score + movingPenalty + yongShenScore;
 
     let confidence = '中等';
     if (Math.abs(totalScore) >= 5) confidence = '高';
@@ -614,6 +741,7 @@ function generateComprehensiveStockJudgment(payload) {
         `MACD：${macdSignal.signal}`,
         `趋势：${priceTrend.trend}`,
         `新闻：${newsSentiment.sentiment}`,
+        `用神强度：${yongShenScore > 0 ? `+${yongShenScore}` : yongShenScore}`,
         `问题类型：${questionType}`
     ];
 
@@ -1047,16 +1175,16 @@ async function performAnalysis(useRealtime) {
         }
         const sentimentResult = analyzeNewsSentiment(newsResult.articles);
 
+        const yongShen = getYongShenInterpretation(questionType, hexagramData);
         const judgment = generateComprehensiveStockJudgment({
             hexagramData,
             macdSignal,
             priceTrend: trendResult,
             newsSentiment: sentimentResult,
-            questionType
+            questionType,
+            yongShenScore: yongShen.score
         });
-
-        const shiYing = calculateShiYing(hexagramData.originalHexagram.number);
-        const yongShen = getYongShenInterpretation(questionType, hexagramData);
+        const shiYing = calculateShiYing(hexagramData.originalHexagram.number, hexagramData.originalBinary);
 
         const movingLinesText = hexagramData.movingLines.length ? hexagramData.movingLines.join('、') : '无';
         resultsNode.style.display = 'block';
@@ -1083,8 +1211,13 @@ async function performAnalysis(useRealtime) {
                         <div class="advice-box" style="margin-top:12px;">
                             <strong>高级模式（世应 + 用神）</strong><br>
                             世爻：第${shiYing.shi}爻｜应爻：第${shiYing.ying}爻<br>
-                            ${shiYing.relation}<br>
-                            <strong>用神重点：</strong>${yongShen.focus}<br>
+                            ${shiYing.relation}（${shiYing.source}）<br>
+                            <strong>卦体五行：</strong>下卦${yongShen.lowerTrigram.name}(${yongShen.lowerTrigram.element}) / 上卦${yongShen.upperTrigram.name}(${yongShen.upperTrigram.element})<br>
+                            <strong>内外关系：</strong>${yongShen.interaction.type}｜${yongShen.interaction.text}<br>
+                            <strong>用神重点：</strong>${yongShen.focus}（六亲优先：${yongShen.prioritiesText}）<br>
+                            <strong>六亲分布：</strong>${yongShen.sixKinSnapshot}<br>
+                            <strong>动爻六亲：</strong>${yongShen.movingSummary}<br>
+                            <strong>用神强度：</strong>${yongShen.strengthLevel}<br>
                             <strong>策略提示：</strong>${yongShen.strategy}<br>
                             <span style="color:#94a3b8;">${yongShen.addendum}</span>
                         </div>
