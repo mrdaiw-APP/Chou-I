@@ -1550,5 +1550,13 @@ async function performAnalysis(useRealtime) {
 updateStockInputHint();
 renderHistoryList();
 </script>
+<script>
+window.CROW_ENABLED = window.CROW_ENABLED ?? true;
+if (window.CROW_ENABLED) {
+    const crowIntegrationScript = document.createElement('script');
+    crowIntegrationScript.src = './crow-integration.js';
+    document.body.appendChild(crowIntegrationScript);
+}
+</script>
 </body>
 </html>
