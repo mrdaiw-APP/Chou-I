@@ -924,6 +924,26 @@ function alignCandlesToCurrentPrice(candles, targetPrice) {
     }));
 }
 
+async function readJsonSafe(response) {
+    const text = await response.text();
+    if (!text) return {};
+    try {
+        return JSON.parse(text);
+    } catch (error) {
+        throw new Error('返回内容不是有效 JSON');
+    }
+}
+
+function buildProxyUrls(targetUrl) {
+    const encoded = encodeURIComponent(targetUrl);
+    return [
+        { url: targetUrl, sourceSuffix: '' },
+        { url: `https://cors.isomorphic-git.org/${targetUrl}`, sourceSuffix: '（代理1）' },
+        { url: `https://api.allorigins.win/raw?url=${encoded}`, sourceSuffix: '（代理2）' },
+        { url: `https://r.jina.ai/http://${targetUrl.replace(/^https?:\/\//, '')}`, sourceSuffix: '（代理3）' }
+    ];
+}
+
 function parseYahooResult(result, symbol) {
     const timestamps = result.timestamp || [];
     const quote = result.indicators?.quote?.[0];
@@ -1048,39 +1068,42 @@ async function fetchNews(stockCode, apiKey, market) {
     const symbolWithoutSuffix = normalized.replace(/\.[A-Z]{1,4}$/, '');
     const queryZh = encodeURIComponent(`${symbolWithoutSuffix} 股票 OR 上市公司`);
     const queryEn = encodeURIComponent(`${symbolWithoutSuffix} stock`);
-    const directUrls = [
+    const baseRequests = [
         {
-            url: `https://gnews.io/api/v4/search?q=${queryZh}&lang=zh&country=cn&max=8&apikey=${encodeURIComponent(safeApiKey)}`,
+            baseUrl: `https://gnews.io/api/v4/search?q=${queryZh}&lang=zh&country=cn&max=8&apikey=${encodeURIComponent(safeApiKey)}`,
             source: 'GNews 中文'
         },
         {
-            url: `https://gnews.io/api/v4/search?q=${queryEn}&lang=en&max=8&apikey=${encodeURIComponent(safeApiKey)}`,
+            baseUrl: `https://gnews.io/api/v4/search?q=${queryEn}&lang=en&max=8&apikey=${encodeURIComponent(safeApiKey)}`,
             source: 'GNews 国际'
         }
     ];
-    const urls = [
-        ...directUrls,
-        ...directUrls.map((item) => ({
-            url: `https://cors.isomorphic-git.org/${item.url}`,
-            source: `${item.source}（代理）`
+    const urls = baseRequests.flatMap((item) =>
+        buildProxyUrls(item.baseUrl).map((proxy) => ({
+            url: proxy.url,
+            source: `${item.source}${proxy.sourceSuffix}`
         }))
-    ];
+    );
     const errors = [];
 
     for (const item of urls) {
         try {
             const response = await fetchWithTimeout(item.url, 10000);
-            const data = await response.json();
+            const data = await readJsonSafe(response);
             if (!response.ok) {
                 const detail = (data?.errors || []).join('；') || data?.message || `HTTP ${response.status}`;
                 throw new Error(detail);
+            }
+            if (!Array.isArray(data.articles)) {
+                throw new Error('返回数据缺少 articles 字段');
             }
             return { articles: data.articles || [], source: item.source };
         } catch (error) {
             errors.push(error.message || '未知错误');
         }
     }
-    throw new Error(`GNews接入失败：${errors[0] || '请求失败，请检查Key是否有效或是否达到免费配额上限'}`);
+    const merged = errors.filter(Boolean).slice(0, 3).join(' | ');
+    throw new Error(`GNews接入失败：${merged || '请求失败，请检查Key是否有效、是否达到免费配额上限，或浏览器网络是否拦截跨域请求'}`);
 }
 
 function calculateRiskControl(currentPrice, atr, capital, riskPercent) {
