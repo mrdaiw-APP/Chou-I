@@ -927,9 +927,19 @@ function alignCandlesToCurrentPrice(candles, targetPrice) {
 async function readJsonSafe(response) {
     const text = await response.text();
     if (!text) return {};
+    const trimmed = text.trim();
     try {
-        return JSON.parse(text);
+        return JSON.parse(trimmed);
     } catch (error) {
+        const first = trimmed.indexOf('{');
+        const last = trimmed.lastIndexOf('}');
+        if (first >= 0 && last > first) {
+            try {
+                return JSON.parse(trimmed.slice(first, last + 1));
+            } catch (innerError) {
+                throw new Error('返回内容不是有效 JSON');
+            }
+        }
         throw new Error('返回内容不是有效 JSON');
     }
 }
@@ -942,6 +952,67 @@ function buildProxyUrls(targetUrl) {
         { url: `https://api.allorigins.win/raw?url=${encoded}`, sourceSuffix: '（代理2）' },
         { url: `https://r.jina.ai/http://${targetUrl.replace(/^https?:\/\//, '')}`, sourceSuffix: '（代理3）' }
     ];
+}
+
+function prettifyNewsError(message) {
+    const raw = (message || '').trim();
+    const lower = raw.toLowerCase();
+    if (lower.includes('failed to fetch')) return '网络连接失败或被浏览器/CORS拦截';
+    if (lower.includes('abort') || lower.includes('signal is aborted') || lower.includes('timeout')) return '请求超时';
+    if (lower.includes('api key') || lower.includes('did not provide an api key')) return 'API Key 无效或缺失';
+    if (lower.includes('quota') || lower.includes('rate limit')) return '已达到免费额度上限';
+    if (lower.includes('http 401') || lower.includes('http 403')) return '鉴权失败（Key或权限问题）';
+    return raw || '未知错误';
+}
+
+function normalizeRssItems(items = []) {
+    return items.slice(0, 8).map((item) => {
+        const title = item.title || '无标题';
+        const sourceName = item.author || title.split(' - ').pop() || 'Google News';
+        return {
+            title,
+            description: item.description || item.content || '暂无摘要',
+            url: item.link || '#',
+            publishedAt: item.pubDate || '',
+            source: { name: sourceName }
+        };
+    });
+}
+
+async function fetchGoogleRssNews(symbolWithoutSuffix) {
+    const queries = [
+        {
+            source: 'Google News 中文RSS',
+            rss: `https://news.google.com/rss/search?q=${encodeURIComponent(`${symbolWithoutSuffix} 股票`)}&hl=zh-CN&gl=CN&ceid=CN:zh-Hans`
+        },
+        {
+            source: 'Google News 国际RSS',
+            rss: `https://news.google.com/rss/search?q=${encodeURIComponent(`${symbolWithoutSuffix} stock`)}&hl=en-US&gl=US&ceid=US:en`
+        }
+    ];
+    const rssErrors = [];
+
+    for (const query of queries) {
+        const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(query.rss)}`;
+        const urls = buildProxyUrls(apiUrl).map((p) => ({
+            url: p.url,
+            source: `${query.source}${p.sourceSuffix}`
+        }));
+        for (const item of urls) {
+            try {
+                const response = await fetchWithTimeout(item.url, 10000);
+                const data = await readJsonSafe(response);
+                if (!response.ok) throw new Error(data?.message || `HTTP ${response.status}`);
+                if (data?.status && data.status !== 'ok') throw new Error(data?.message || 'RSS解析服务失败');
+                const articles = normalizeRssItems(data?.items || []);
+                return { articles, source: item.source };
+            } catch (error) {
+                rssErrors.push(prettifyNewsError(error.message));
+            }
+        }
+    }
+
+    throw new Error(`Google RSS兜底失败：${rssErrors.filter(Boolean).slice(0, 2).join(' | ') || '请求失败'}`);
 }
 
 function parseYahooResult(result, symbol) {
@@ -1099,11 +1170,16 @@ async function fetchNews(stockCode, apiKey, market) {
             }
             return { articles: data.articles || [], source: item.source };
         } catch (error) {
-            errors.push(error.message || '未知错误');
+            errors.push(prettifyNewsError(error.message));
         }
     }
-    const merged = errors.filter(Boolean).slice(0, 3).join(' | ');
-    throw new Error(`GNews接入失败：${merged || '请求失败，请检查Key是否有效、是否达到免费配额上限，或浏览器网络是否拦截跨域请求'}`);
+
+    try {
+        return await fetchGoogleRssNews(symbolWithoutSuffix);
+    } catch (rssError) {
+        const merged = errors.filter(Boolean).slice(0, 3).join(' | ');
+        throw new Error(`GNews接入失败：${merged || '请求失败'}；${rssError.message}`);
+    }
 }
 
 function calculateRiskControl(currentPrice, atr, capital, riskPercent) {
