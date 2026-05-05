@@ -80,6 +80,25 @@
         button:hover { transform: translateY(-2px); }
         button:disabled { opacity: 0.75; cursor: not-allowed; transform: none; }
         button.secondary { background: #475569; color: #e2e8f0; }
+        .small-btn {
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-size: 0.88rem;
+            white-space: nowrap;
+        }
+        .news-key-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .news-key-row input { flex: 1; min-width: 0; }
+        .news-status {
+            min-height: 1.2rem;
+            font-size: 0.76rem;
+            color: #94a3b8;
+            margin-top: 4px;
+            line-height: 1.4;
+        }
         .result-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -228,7 +247,7 @@
         <div class="input-group">
             <div>
                 <label for="market">交易市场</label>
-                <select id="market" onchange="updateStockInputHint()">
+                <select id="market" onchange="updateStockInputHint(); invalidateNewsCache();">
                     <option value="AUTO">自动识别</option>
                     <option value="CN_A">中国A股（沪深）</option>
                     <option value="HK">中国香港</option>
@@ -245,7 +264,7 @@
             </div>
             <div>
                 <label for="stockCode">股票代码</label>
-                <input type="text" id="stockCode" value="600519" placeholder="输入代码，如 600519 / AAPL / 0700">
+                <input type="text" id="stockCode" value="600519" placeholder="输入代码，如 600519 / AAPL / 0700" oninput="invalidateNewsCache()">
             </div>
             <div>
                 <label for="capital">账户总资金 (元)</label>
@@ -257,8 +276,12 @@
             </div>
             <div>
                 <label for="newsApiKey">新闻API Key (可选)</label>
-                <input type="text" id="newsApiKey" placeholder="GNews 免费 Key">
+                <div class="news-key-row">
+                    <input type="text" id="newsApiKey" placeholder="GNews 免费 Key" oninput="invalidateNewsCache()">
+                    <button id="loadNewsBtn" class="secondary small-btn" onclick="preloadNews()">加载新闻</button>
+                </div>
                 <div class="data-source" style="margin-top:4px;">免费注册 gnews.io 获取（每天100次）</div>
+                <div id="newsLoadStatus" class="news-status"></div>
             </div>
             <div>
                 <label for="questionType">问题类型</label>
@@ -408,6 +431,12 @@ const STORAGE_KEY = 'iching_stock_history_v41';
 const HISTORY_LIMIT = 20;
 const FALLBACK_HISTORY = [];
 const chartRefs = { price: null, volume: null, macd: null };
+const prefetchedNewsState = {
+    cacheKey: '',
+    result: null,
+    loadedAt: '',
+    loading: false
+};
 const MARKET_CONFIG = {
     AUTO: { label: '自动识别', placeholder: 'A股6位 / 美股字母 / 港股4-5位' },
     CN_A: { label: '中国A股', placeholder: '如 600519 / 000001 / 300750' },
@@ -448,6 +477,36 @@ function updateStockInputHint() {
     const config = MARKET_CONFIG[market] || MARKET_CONFIG.AUTO;
     if (hintNode) hintNode.textContent = `${config.label}：${config.placeholder}`;
     if (input) input.placeholder = config.placeholder;
+}
+
+function buildNewsCacheKey(stockCode, market, apiKey) {
+    return `${normalizeStockCode(stockCode, market)}|${market || 'AUTO'}|${sanitizeApiKey(apiKey)}`;
+}
+
+function setNewsLoadStatus(text = '', level = 'normal') {
+    const node = document.getElementById('newsLoadStatus');
+    if (!node) return;
+    node.textContent = text;
+    if (level === 'error') node.style.color = '#fca5a5';
+    else if (level === 'success') node.style.color = '#86efac';
+    else if (level === 'warn') node.style.color = '#facc15';
+    else node.style.color = '#94a3b8';
+}
+
+function invalidateNewsCache(reason = '新闻参数已变化，请重新点击“加载新闻”。') {
+    prefetchedNewsState.cacheKey = '';
+    prefetchedNewsState.result = null;
+    prefetchedNewsState.loadedAt = '';
+    if (document.getElementById('newsLoadStatus')) {
+        setNewsLoadStatus(reason, 'warn');
+    }
+}
+
+function setNewsButtonLoading(isLoading) {
+    const btn = document.getElementById('loadNewsBtn');
+    if (!btn) return;
+    btn.disabled = isLoading;
+    btn.innerHTML = isLoading ? '<span class="loading"></span>加载中...' : '加载新闻';
 }
 
 function sanitizeApiKey(value) {
@@ -1134,8 +1193,8 @@ async function fetchStockData(rawCode, useRealtime, market) {
 
 async function fetchNews(stockCode, apiKey, market) {
     const safeApiKey = sanitizeApiKey(apiKey);
-    if (!safeApiKey) return { articles: [], source: '未启用API' };
     const normalized = normalizeStockCode(stockCode, market);
+    if (!normalized) return { articles: [], source: '股票代码为空' };
     const symbolWithoutSuffix = normalized.replace(/\.[A-Z]{1,4}$/, '');
     const queryZh = encodeURIComponent(`${symbolWithoutSuffix} 股票 OR 上市公司`);
     const queryEn = encodeURIComponent(`${symbolWithoutSuffix} stock`);
@@ -1149,37 +1208,87 @@ async function fetchNews(stockCode, apiKey, market) {
             source: 'GNews 国际'
         }
     ];
-    const urls = baseRequests.flatMap((item) =>
-        buildProxyUrls(item.baseUrl).map((proxy) => ({
-            url: proxy.url,
-            source: `${item.source}${proxy.sourceSuffix}`
-        }))
-    );
     const errors = [];
 
-    for (const item of urls) {
-        try {
-            const response = await fetchWithTimeout(item.url, 10000);
-            const data = await readJsonSafe(response);
-            if (!response.ok) {
-                const detail = (data?.errors || []).join('；') || data?.message || `HTTP ${response.status}`;
-                throw new Error(detail);
+    if (safeApiKey) {
+        const urls = baseRequests.flatMap((item) =>
+            buildProxyUrls(item.baseUrl).map((proxy) => ({
+                url: proxy.url,
+                source: `${item.source}${proxy.sourceSuffix}`
+            }))
+        );
+
+        for (const item of urls) {
+            try {
+                const response = await fetchWithTimeout(item.url, 10000);
+                const data = await readJsonSafe(response);
+                if (!response.ok) {
+                    const detail = (data?.errors || []).join('；') || data?.message || `HTTP ${response.status}`;
+                    throw new Error(detail);
+                }
+                const articles = Array.isArray(data.articles) ? data.articles : [];
+                if (articles.length === 0) {
+                    throw new Error('GNews返回空新闻列表');
+                }
+                return { articles, source: item.source };
+            } catch (error) {
+                errors.push(prettifyNewsError(error.message));
             }
-            if (!Array.isArray(data.articles)) {
-                throw new Error('返回数据缺少 articles 字段');
-            }
-            return { articles: data.articles || [], source: item.source };
-        } catch (error) {
-            errors.push(prettifyNewsError(error.message));
         }
     }
 
     try {
-        return await fetchGoogleRssNews(symbolWithoutSuffix);
+        const fallback = await fetchGoogleRssNews(symbolWithoutSuffix);
+        return {
+            ...fallback,
+            source: safeApiKey ? `Google News兜底（GNews不可用）/${fallback.source}` : fallback.source
+        };
     } catch (rssError) {
         const merged = errors.filter(Boolean).slice(0, 3).join(' | ');
-        throw new Error(`GNews接入失败：${merged || '请求失败'}；${rssError.message}`);
+        throw new Error(`新闻加载失败：${merged || 'GNews不可用'}；${rssError.message}`);
     }
+}
+
+async function preloadNews() {
+    const stockCode = getInputValue('stockCode').trim();
+    const market = getInputValue('market');
+    const apiKey = getInputValue('newsApiKey');
+    if (!stockCode) {
+        setNewsLoadStatus('请先填写股票代码，再加载新闻。', 'warn');
+        return;
+    }
+    if (prefetchedNewsState.loading) return;
+    setNewsButtonLoading(true);
+    prefetchedNewsState.loading = true;
+    setNewsLoadStatus('正在加载新闻，请稍候...', 'normal');
+    try {
+        const result = await fetchNews(stockCode, apiKey, market);
+        const cacheKey = buildNewsCacheKey(stockCode, market, apiKey);
+        prefetchedNewsState.cacheKey = cacheKey;
+        prefetchedNewsState.result = result;
+        prefetchedNewsState.loadedAt = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+        const count = Array.isArray(result.articles) ? result.articles.length : 0;
+        setNewsLoadStatus(`已加载 ${count} 条新闻（${result.source}）@ ${prefetchedNewsState.loadedAt}`, count > 0 ? 'success' : 'warn');
+    } catch (error) {
+        prefetchedNewsState.cacheKey = '';
+        prefetchedNewsState.result = null;
+        prefetchedNewsState.loadedAt = '';
+        setNewsLoadStatus(error.message || '新闻加载失败', 'error');
+    } finally {
+        prefetchedNewsState.loading = false;
+        setNewsButtonLoading(false);
+    }
+}
+
+async function resolveNewsResult(stockCode, apiKey, market) {
+    const cacheKey = buildNewsCacheKey(stockCode, market, apiKey);
+    if (prefetchedNewsState.cacheKey === cacheKey && prefetchedNewsState.result) {
+        return {
+            ...prefetchedNewsState.result,
+            source: `${prefetchedNewsState.result.source}（已预加载）`
+        };
+    }
+    return fetchNews(stockCode, apiKey, market);
 }
 
 function calculateRiskControl(currentPrice, atr, capital, riskPercent) {
@@ -1472,8 +1581,10 @@ function getInputValue(id) {
 function setButtonsLoading(isLoading) {
     const realtimeBtn = document.getElementById('analyzeRealtimeBtn');
     const mockBtn = document.getElementById('analyzeMockBtn');
+    const loadNewsBtn = document.getElementById('loadNewsBtn');
     realtimeBtn.disabled = isLoading;
     mockBtn.disabled = isLoading;
+    if (loadNewsBtn) loadNewsBtn.disabled = isLoading || prefetchedNewsState.loading;
     if (isLoading) {
         realtimeBtn.innerHTML = '<span class="loading"></span>分析中...';
         mockBtn.innerHTML = '<span class="loading"></span>分析中...';
@@ -1517,9 +1628,14 @@ async function performAnalysis(useRealtime) {
 
         let newsResult = { articles: [], source: '未启用API' };
         try {
-            newsResult = await fetchNews(stockCode, newsApiKey, market);
+            newsResult = await resolveNewsResult(stockCode, newsApiKey, market);
         } catch (error) {
-            newsResult = { articles: [], source: error.message || 'GNews请求失败' };
+            newsResult = { articles: [], source: error.message || '新闻请求失败' };
+        }
+        if (prefetchedNewsState.cacheKey === buildNewsCacheKey(stockCode, market, newsApiKey) && prefetchedNewsState.loadedAt) {
+            setNewsLoadStatus(`分析使用预加载新闻（${prefetchedNewsState.loadedAt}）`, 'success');
+        } else {
+            setNewsLoadStatus('分析使用即时拉取新闻（可先点“加载新闻”提高成功率）', 'normal');
         }
         const sentimentResult = analyzeNewsSentiment(newsResult.articles);
 
